@@ -1,0 +1,146 @@
+<!doctype html>
+<!-- 9.24.0 · la página de estado para status.enfokegroup.com — versión estática.
+
+     Esta página NO vive en IONOS (la página que dice si IONOS está caído no puede vivir
+     en IONOS) y NO puede vivir en *.supabase.co como HTML (la pasarela de Supabase sirve
+     el HTML de las Edge Functions como text/plain, medida anti-phishing comprobada el
+     25 ago 2026). Así que es ESTÁTICA y pinta los datos en el navegador, leyéndolos del
+     json público de la Edge Function `status` (CORS abierto a propósito).
+
+     Dónde alojarla: cualquier sitio que no sea IONOS — GitHub Pages es el candidato
+     natural (gratis, TLS automático, y status.enfokegroup.com se le apunta con un CNAME
+     desde el panel DNS de IONOS). El README de esta carpeta trae los pasos.
+
+     Esta carpeta NO está en deploy-ionos.sh, a propósito. No se sube a IONOS jamás. -->
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Estado de los servicios — Enfoke Group</title>
+<style>
+  :root { color-scheme: dark }
+  * { margin:0; padding:0; box-sizing:border-box }
+  body { background:#0d1117; color:#e6edf3; font-family:-apple-system,system-ui,"Segoe UI",Roboto,sans-serif;
+         line-height:1.5; padding:2.5rem 1.25rem 4rem; max-width:44rem; margin:0 auto }
+  .marca { letter-spacing:.35em; font-weight:800; font-size:.8rem; color:#8b949e; text-transform:uppercase }
+  h1 { font-size:1.4rem; font-weight:650; margin:.35rem 0 1.6rem }
+  .resumen { display:flex; align-items:center; gap:.6rem; padding:1rem 1.2rem; border:1px solid #21262d;
+             border-radius:12px; margin-bottom:1.6rem; font-weight:600 }
+  .fila { display:flex; align-items:baseline; gap:.8rem; padding:1rem .4rem; border-bottom:1px solid #21262d }
+  .fila:last-child { border-bottom:none }
+  .punto { font-size:1rem }
+  .quien { flex:1; min-width:0 }
+  .nombre { font-weight:600 }
+  .veredicto { text-align:right; font-weight:600; white-space:nowrap }
+  .mini { font-size:.78rem; color:#8b949e; font-weight:400 }
+  .mini a { color:#8b949e }
+  h2 { font-size:.95rem; margin:2.2rem 0 .7rem; color:#8b949e; font-weight:650;
+       text-transform:uppercase; letter-spacing:.08em }
+  table { width:100%; border-collapse:collapse; font-size:.82rem }
+  th, td { text-align:left; padding:.45rem .5rem; border-bottom:1px solid #21262d; vertical-align:top }
+  th { color:#8b949e; font-weight:600 }
+  footer { margin-top:2.5rem; font-size:.75rem; color:#8b949e }
+  footer p { margin-bottom:.4rem }
+</style></head><body>
+  <div class="marca">Enfoke Group</div>
+  <h1>Estado de los servicios</h1>
+  <div id="cuerpo"><p class="mini">Leyendo el estado…</p></div>
+  <footer>
+    <p>Comprobado cada 5 minutos desde la base de datos (Supabase), fuera del hosting que
+       vigila — a propósito: la página que cuenta si el hosting está caído no puede vivir en él.</p>
+    <p>Un incidente se declara a los dos fallos seguidos y avisa por correo una sola vez;
+       al recuperarse, avisa otra. Esta página se actualiza sola cada 60 segundos.</p>
+    <p id="generado"></p>
+  </footer>
+<script>
+"use strict";
+/* Los datos salen del json público del vigía. Si algún día cambia el proyecto de
+   Supabase, esta constante es lo único que hay que tocar. */
+const FUENTE = "https://ahzsmitvrvhhfsrtbypd.supabase.co/functions/v1/status?formato=json";
+
+const ETIQUETA = {
+  ok:          { texto: "Operativo",     color: "#3fb950", punto: "●" },
+  ko:          { texto: "Con errores",   color: "#d29922", punto: "●" },
+  caido:       { texto: "Caído",         color: "#f85149", punto: "●" },
+  desconocido: { texto: "Sin datos aún", color: "#8b949e", punto: "○" },
+};
+
+const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+const enMadrid = (iso) => {
+  if (!iso) return "—";
+  return new Intl.DateTimeFormat("es-ES", { timeZone: "Europe/Madrid",
+    day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
+    .format(new Date(iso)).replace(",", " ·");
+};
+
+const haceCuanto = (iso) => {
+  if (!iso) return "—";
+  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (min < 1) return "hace menos de un minuto";
+  if (min < 120) return "hace " + min + " min";
+  return "hace " + (min / 60).toFixed(1) + " h";
+};
+
+const duracion = (desde, hasta) => {
+  const fin = hasta ? new Date(hasta).getTime() : Date.now();
+  const min = Math.round((fin - new Date(desde).getTime()) / 60000);
+  return min < 120 ? min + " min" : (min / 60).toFixed(1) + " h";
+};
+
+/* El control del banco (clave 'prueba') no se enseña si algún día se queda sembrado:
+   es andamiaje, no un servicio. */
+const pintar = (datos) => {
+  const sitios = datos.sitios.filter((s) => s.clave !== "prueba");
+  const abiertos = sitios.filter((s) => s.estado === "ko" || s.estado === "caido").length;
+  const resumen = abiertos === 0
+    ? { t: "Todos los servicios operativos", c: "#3fb950" }
+    : { t: abiertos === sitios.length ? "Caída general en curso"
+                                      : abiertos + " servicio(s) con incidente en curso", c: "#f85149" };
+  const filas = sitios.map((s) => {
+    const e = ETIQUETA[s.estado] || ETIQUETA.desconocido;
+    const desde = (s.estado === "ko" || s.estado === "caido") && s.ko_desde
+      ? '<div class="mini">desde el ' + esc(enMadrid(s.ko_desde)) + " · " + esc((s.detalle || "").slice(0, 90)) + "</div>" : "";
+    const up = s.uptime30 == null ? "—" : s.uptime30.toFixed(2).replace(".", ",") + " %";
+    return '<div class="fila" data-estado="' + esc(s.estado) + '">' +
+      '<span class="punto" style="color:' + e.color + '">' + e.punto + "</span>" +
+      '<div class="quien"><div class="nombre">' + esc(s.nombre) + "</div>" +
+      '<div class="mini"><a href="https://' + esc(s.dominio) + '/">' + esc(s.dominio) + "</a> · comprobado " +
+      esc(haceCuanto(s.comprobado_at)) + "</div>" + desde + "</div>" +
+      '<div class="veredicto"><span style="color:' + e.color + '">' + e.texto + "</span>" +
+      '<div class="mini">30 días: ' + up + "</div></div></div>";
+  }).join("");
+  const incs = datos.incidentes.filter((i) => i.sitio !== "prueba");
+  const incidentes = incs.length === 0
+    ? '<p class="mini">Ninguno registrado. El registro empieza el 25 de agosto de 2026.</p>'
+    : "<table><tr><th>Servicio</th><th>Desde</th><th>Hasta</th><th>Duración</th><th>Qué</th></tr>" +
+      incs.map((i) =>
+        "<tr><td>" + esc(i.nombre) + "</td><td>" + esc(enMadrid(i.desde)) + "</td>" +
+        "<td>" + (i.hasta ? esc(enMadrid(i.hasta)) : '<span style="color:#f85149">en curso</span>') + "</td>" +
+        "<td>" + esc(duracion(i.desde, i.hasta)) + "</td>" +
+        "<td>" + esc(i.veredicto === "caido" ? "sin respuesta" : "errores") + "</td></tr>"
+      ).join("") + "</table>";
+  document.getElementById("cuerpo").innerHTML =
+    '<div class="resumen"><span style="color:' + resumen.c + '">●</span> ' + esc(resumen.t) + "</div>" +
+    filas + "<h2>Últimos incidentes</h2>" + incidentes;
+  document.getElementById("generado").textContent =
+    "Generado el " + enMadrid(datos.generado) + " (hora de Madrid).";
+};
+
+/* La página nunca miente: si no puede leer el estado, lo dice — no deja el «leyendo…»
+   eterno ni pinta verdes viejos. */
+const leer = () =>
+  fetch(FUENTE, { cache: "no-store" })
+    .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(pintar)
+    .catch((e) => {
+      document.getElementById("cuerpo").innerHTML =
+        '<div class="resumen"><span style="color:#f85149">●</span> No se ha podido leer el estado (' +
+        esc(String(e.message || e).slice(0, 120)) + ")</div>" +
+        '<p class="mini">El estado vive en Supabase. Si esto falla, o no hay conexión o el que tose es ' +
+        "Supabase — que es otra ruta distinta de los sitios de IONOS.</p>";
+    });
+
+leer();
+setInterval(leer, 60000);
+</script>
+</body></html>
