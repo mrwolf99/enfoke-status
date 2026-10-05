@@ -1,17 +1,5 @@
 <!doctype html>
-<!-- 9.24.0 · la página de estado para status.enfokegroup.com — versión estática.
-
-     Esta página NO vive en IONOS (la página que dice si IONOS está caído no puede vivir
-     en IONOS) y NO puede vivir en *.supabase.co como HTML (la pasarela de Supabase sirve
-     el HTML de las Edge Functions como text/plain, medida anti-phishing comprobada el
-     25 ago 2026). Así que es ESTÁTICA y pinta los datos en el navegador, leyéndolos del
-     json público de la Edge Function `status` (CORS abierto a propósito).
-
-     Dónde alojarla: cualquier sitio que no sea IONOS — GitHub Pages es el candidato
-     natural (gratis, TLS automático, y status.enfokegroup.com se le apunta con un CNAME
-     desde el panel DNS de IONOS). El README de esta carpeta trae los pasos.
-
-     Esta carpeta NO está en deploy-ionos.sh, a propósito. No se sube a IONOS jamás. -->
+<!-- Página estática: lee el JSON público de la función `status` y lo pinta en el navegador. -->
 <html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Estado de los servicios — Enfoke Group</title>
